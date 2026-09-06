@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>جنگل هوشمند</title>
+<style>
+*{
+  box-sizing:border-box;
+  -webkit-tap-highlight-color:transparent;
+  touch-action:manipulation;
+}
+body{
+  margin:0;
+  background:#101814;
+  color:#fff;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  overflow:hidden;
+}
+#game{
+  display:block;
+  width:100vw;
+  height:100vh;
+  background:#203b2b;
+}
+#ui{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+}
+.top{
+  position:absolute;
+  top:15px;
+  left:15px;
+  right:15px;
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  direction:ltr;
+}
+.card{
+  background:rgba(12,22,17,.78);
+  backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:16px;
+  padding:10px 14px;
+  color:#fff;
+  font-size:13px;
+}
+#stats{
+  direction:rtl;
+  line-height:1.8;
+}
+#hint{
+  position:absolute;
+  bottom:20px;
+  left:50%;
+  transform:translateX(-50%);
+  width:min(90vw,430px);
+  text-align:center;
+  background:rgba(12,22,17,.85);
+  border:1px solid rgba(255,255,255,.12);
+  padding:12px 16px;
+  border-radius:16px;
+  font-size:13px;
+}
+#panel{
+  position:absolute;
+  bottom:90px;
+  right:15px;
+  width:min(290px,80vw);
+  background:rgba(10,18,14,.88);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:18px;
+  padding:15px;
+  display:none;
+  direction:rtl;
+}
+#panel h3{
+  margin:0 0 8px;
+  font-size:16px;
+}
+#panel p{
+  margin:5px 0;
+  color:#c8d7cd;
+  font-size:13px;
+}
+button{
+  pointer-events:auto;
+  border:0;
+  border-radius:14px;
+  padding:10px 14px;
+  color:#fff;
+  background:#2e6b48;
+  font-size:14px;
+}
+#restart{
+  pointer-events:auto;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="ui">
+  <div class="top">
+    <div class="card" id="time">روز ۱</div>
+    <button id="restart">شروع دوباره</button>
+  </div>
+
+  <div class="card" id="stats">
+    🌲 جمعیت: <span id="population">0</span><br>
+    🍎 غذا: <span id="food">0</span><br>
+    💧 آب: <span id="water">0</span>
+  </div>
+
+  <div id="panel"></div>
+
+  <div id="hint">
+    روی یکی از موجودات بزن تا وضعیتش رو ببینی.<br>
+    ایجنت‌ها خودشان تصمیم می‌گیرند: غذا پیدا کنند، آب بخورند، استراحت کنند یا فرار کنند.
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W, H, scale;
+
+function resize(){
+  scale = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * scale;
+  canvas.height = H * scale;
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  ctx.setTransform(scale,0,0,scale,0,0);
+}
+window.addEventListener("resize", resize);
+resize();
+
+const agents = [];
+const trees = [];
+const foods = [];
+const waters = [];
+const rocks = [];
+
+let day = 1;
+let elapsed = 0;
+let running = true;
+
+const names = [
+  "آرین","لونا","نووا","سایا","اُرین",
+  "کای","نیل","میا","زِن","آریا"
+];
+
+function rand(a,b){
+  return Math.random()*(b-a)+a;
+}
+
+function dist(a,b){
+  return Math.hypot(a.x-b.x,a.y-b.y);
+}
+
+function createWorld(){
+
+  agents.length = 0;
+  trees.length = 0;
+  foods.length = 0;
+  waters.length = 0;
+  rocks.length = 0;
+
+  day = 1;
+  elapsed = 0;
+  running = true;
+
+  for(let i=0;i<32;i++){
+    trees.push({
+      x:rand(20,W-20),
+      y:rand(100,H-30),
+      r:rand(18,35)
+    });
+  }
+
+  for(let i=0;i<20;i++){
+    rocks.push({
+      x:rand(10,W-10),
+      y:rand(100,H-20),
+      r:rand(5,12)
+    });
+  }
+
+  for(let i=0;i<14;i++){
+    foods.push({
+      x:rand(20,W-20),
+      y:rand(110,H-40),
+      amount:1
+    });
+  }
+
+  waters.push({
+    x:W*.23,
+    y:H*.42,
+    r:48
+  });
+
+  waters.push({
+    x:W*.77,
+    y:H*.68,
+    r:42
+  });
+
+  for(let i=0;i<8;i++){
+    agents.push({
+      id:i,
+      name:names[i],
+      x:rand(W*.25,W*.75),
+      y:rand(H*.3,H*.75),
+      vx:0,
+      vy:0,
+      speed:rand(.55,.9),
+      hunger:rand(55,85),
+      thirst:rand(55,85),
+      energy:rand(60,95),
+      health:100,
+      state:"کاوش",
+      color:[
+        "#f2c94c","#ff7a7a","#79c2ff",
+        "#c792ea","#74d99f","#ff9f6b",
+        "#ef86b9","#a7dc68"
+      ][i],
+      target:null,
+      decisionTimer:0
+    });
+  }
+
+  updateUI();
+}
+
+function nearestFood(a){
+  let best=null;
+  let bestD=Infinity;
+
+  for(const f of foods){
+    const d=dist(a,f);
+    if(d<bestD){
+      bestD=d;
+      best=f;
+    }
+  }
+  return best;
+}
+
+function nearestWater(a){
+  let best=null;
+  let bestD=Infinity;
+
+  for(const w of waters){
+    const d=dist(a,w);
+    if(d<bestD){
+      bestD=d;
+      best=w;
+    }
+  }
+  return best;
+}
+
+function decide(a){
+
+  if(a.health<=0) return;
+
+  if(a.energy < 18){
+    a.state="استراحت";
+    a.target=null;
+    return;
+  }
+
+  if(a.thirst < 35){
+    a.state="جستجوی آب";
+    a.target=nearestWater(a);
+    return;
+  }
+
+  if(a.hunger < 35 && foods.length){
+    a.state="جستجوی غذا";
+    a.target=nearestFood(a);
+    return;
+  }
+
+  a.state="کاوش";
+  a.target={
+    x:rand(20,W-20),
+    y:rand(110,H-30)
+  };
+}
+
+function updateAgent(a,dt){
+
+  if(a.health<=0) return;
+
+  a.hunger -= .003*dt;
+  a.thirst -= .005*dt;
+
+  if(a.hunger<=0 || a.thirst<=0){
+    a.health -= .012*dt;
+  }
+
+  if(a.energy<=0){
+    a.health -= .006*dt;
+  }
+
+  a.hunger=Math.max(0,a.hunger);
+  a.thirst=Math.max(0,a.thirst);
+  a.energy=Math.max(0,a.energy);
+  a.health=Math.max(0,a.health);
+
+  a.decisionTimer-=dt;
+
+  if(a.decisionTimer<=0){
+    decide(a);
+    a.decisionTimer=rand(500,1300);
+  }
+
+  if(a.state==="استراحت"){
+    a.energy=Math.min(100,a.energy+.018*dt);
+    return;
+  }
+
+  if(a.target){
+    const dx=a.target.x-a.x;
+    const dy=a.target.y-a.y;
+    const d=Math.hypot(dx,dy);
+
+    if(d>2){
+      const speed=a.speed*dt*.06;
+
+      a.vx=(dx/d)*speed;
+      a.vy=(dy/d)*speed;
+
+      a.x+=a.vx;
+      a.y+=a.vy;
+
+      a.energy-=.003*dt;
+    }else{
+
+      if(a.state==="جستجوی آب"){
+        a.thirst=Math.min(100,a.thirst+.08*dt);
+
+        if(a.thirst>85){
+          a.target=null;
+        }
+      }
+
+      if(a.state==="جستجوی غذا"){
+
+        const index=foods.indexOf(a.target);
+
+        if(index!==-1){
+          foods.splice(index,1);
+          a.hunger=Math.min(100,a.hunger+40);
+        }
+
+        a.target=null;
+      }
+    }
+  }
+
+  a.x=Math.max(10,Math.min(W-10,a.x));
+  a.y=Math.max(90,Math.min(H-10,a.y));
+}
+
+function spawnFood(){
+  if(foods.length<18 && Math.random()<.012){
+    foods.push({
+      x:rand(20,W-20),
+      y:rand(110,H-30),
+      amount:1
+    });
+  }
+}
+
+function drawBackground(){
+
+  ctx.fillStyle="#244632";
+  ctx.fillRect(0,0,W,H);
+
+  const g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,"rgba(255,255,255,.03)");
+  g.addColorStop(1,"rgba(0,0,0,.18)");
+
+  ctx.fillStyle=g;
+  ctx.fillRect(0,0,W,H);
+
+  for(let i=0;i<60;i++){
+    const x=(i*97)%W;
+    const y=100+(i*61)%(H-100);
+
+    ctx.fillStyle="rgba(255,255,255,.025)";
+    ctx.beginPath();
+    ctx.arc(x,y,1.5,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawTree(t){
+
+  ctx.fillStyle="#493825";
+  ctx.fillRect(t.x-3,t.y,t.x?6:6,t.r*.8);
+
+  ctx.fillStyle="#173b27";
+  ctx.beginPath();
+  ctx.arc(t.x,t.y,t.r,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="#245436";
+  ctx.beginPath();
+  ctx.arc(t.x-t.r*.25,t.y-t.r*.2,t.r*.7,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="#2d6842";
+  ctx.beginPath();
+  ctx.arc(t.x+t.r*.25,t.y-t.r*.25,t.r*.55,0,Math.PI*2);
+  ctx.fill();
+}
+
+function drawWater(w){
+
+  ctx.fillStyle="rgba(39,125,150,.72)";
+  ctx.beginPath();
+  ctx.ellipse(w.x,w.y,w.r,w.r*.58,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.strokeStyle="rgba(130,220,240,.35)";
+  ctx.lineWidth=2;
+  ctx.stroke();
+}
+
+function drawFood(f){
+
+  ctx.fillStyle="#e84b4b";
+  ctx.beginPath();
+  ctx.arc(f.x,f.y,5,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle="#79c95b";
+  ctx.fillRect(f.x+2,f.y-6,2,4);
+}
+
+function drawAgent(a){
+
+  if(a.health<=0){
+    ctx.fillStyle="rgba(0,0,0,.35)";
+    ctx.beginPath();
+    ctx.ellipse(a.x,a.y+7,10,4,0,0,Math.PI*2);
+    ctx.fill();
+    return;
+  }
+
+  ctx.fillStyle="rgba(0,0,0,.25)";
+  ctx.beginPath();
+  ctx.ellipse(a.x,a.y+8,11,5,0,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.fillStyle=a.color;
+  ctx.beginPath();
+  ctx.arc(a.x,a.y,10,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.strokeStyle="rgba(255,255,255,.7)";
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+
+  ctx.fillStyle="#142019";
+  ctx.beginPath();
+  ctx.arc(a.x-3,a.y-1,1.5,0,Math.PI*2);
+  ctx.arc(a.x+3,a.y-1,1.5,0,Math.PI*2);
+  ctx.fill();
+
+  ctx.font="11px sans-serif";
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff";
+  ctx.fillText(a.name,a.x,a.y-16);
+
+  ctx.fillStyle="rgba(0,0,0,.5)";
+  ctx.fillRect(a.x-11,a.y+14,22,3);
+
+  ctx.fillStyle=
+    a.health>60 ? "#69c982" :
+    a.health>30 ? "#f0c64d" : "#e05a5a";
+
+  ctx.fillRect(
+    a.x-11,
+    a.y+14,
+    22*(a.health/100),
+    3
+  );
+}
+
+function drawRock(r){
+  ctx.fillStyle="#667268";
+  ctx.beginPath();
+  ctx.arc(r.x,r.y,r.r,0,Math.PI*2);
+  ctx.fill();
+}
+
+function draw(){
+
+  drawBackground();
+
+  for(const w of waters) drawWater(w);
+  for(const t of trees) drawTree(t);
+  for(const r of rocks) drawRock(r);
+  for(const f of foods) drawFood(f);
+  for(const a of agents) drawAgent(a);
+}
+
+function updateUI(){
+
+  const alive=agents.filter(a=>a.health>0);
+
+  document.getElementById("population").textContent=alive.length;
+  document.getElementById("food").textContent=foods.length;
+  document.getElementById("water").textContent=waters.length;
+  document.getElementById("time").textContent="روز "+day;
+}
+
+let last=performance.now();
+
+function loop(now){
+
+  const dt=Math.min(40,now-last);
+  last=now;
+
+  if(running){
+
+    elapsed+=dt;
+
+    if(elapsed>30000){
+      day++;
+      elapsed=0;
+    }
+
+    for(const a of agents){
+      updateAgent(a,dt);
+    }
+
+    spawnFood();
+
+    if(Math.floor(now/500)!==Math.floor((now-dt)/500)){
+      updateUI();
+    }
+  }
+
+  draw();
+  requestAnimationFrame(loop);
+}
+
+canvas.addEventListener("pointerdown",(e)=>{
+
+  const rect=canvas.getBoundingClientRect();
+  const x=e.clientX-rect.left;
+  const y=e.clientY-rect.top;
+
+  let selected=null;
+  let best=30;
+
+  for(const a of agents){
+
+    if(a.health<=0) continue;
+
+    const d=Math.hypot(a.x-x,a.y-y);
+
+    if(d<best){
+      selected=a;
+      best=d;
+    }
+  }
+
+  const panel=document.getElementById("panel");
+
+  if(selected){
+
+    panel.style.display="block";
+
+    panel.innerHTML=`
+      <h3>${selected.name} · 🤖</h3>
+      <p>تصمیم فعلی: <b>${selected.state}</b></p>
+      <p>❤️ سلامتی: ${Math.round(selected.health)}%</p>
+      <p>🍎 گرسنگی: ${Math.round(selected.hunger)}%</p>
+      <p>💧 تشنگی: ${Math.round(selected.thirst)}%</p>
+      <p>⚡ انرژی: ${Math.round(selected.energy)}%</p>
+    `;
+  }else{
+    panel.style.display="none";
+  }
+
+});
+
+document.getElementById("restart").addEventListener("click",()=>{
+  createWorld();
+  document.getElementById("panel").style.display="none";
+});
+
+createWorld();
+requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>
